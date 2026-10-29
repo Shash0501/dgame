@@ -1,2 +1,2 @@
 # dgame
-Drinking Game for large groups
+Game for large groups
