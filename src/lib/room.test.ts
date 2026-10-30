@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { builtinContent } from '../games/most-likely-to/questions.ts'
-import { advance, createRoom, gameAction, joinRoom, kickPlayer, startGame } from './room.ts'
+import { advance, createRoom, finishGame, gameAction, joinRoom, kickPlayer, startGame } from './room.ts'
 
 function lobby(n = 4) {
   let r = createRoom('ABCDE', 'p0', 'Host', 'most-likely-to')
@@ -25,6 +25,15 @@ test('round does not close when everyone has voted; only the host reveals', () =
   assert.equal((r.game as { phase: string }).phase, 'voting')
   assert.throws(() => advance(r, 'p1', 2))
   assert.equal((advance(r, 'p0', 2).game as { phase: string }).phase, 'results')
+})
+
+test('only the host can finish the game, and it stays in progress at the summary', () => {
+  let r = startGame(lobby(4), 'p0', 0, builtinContent)
+  r = gameAction(r, 'p1', { type: 'vote', targetId: 'p2' }, 1)
+  assert.throws(() => finishGame(r, 'p1', 2)) // not the host
+  const done = finishGame(r, 'p0', 2)
+  assert.equal(done.status, 'playing') // everyone still sees the summary
+  assert.equal((done.game as { phase: string }).phase, 'done')
 })
 
 test('host can remove players but not themselves', () => {

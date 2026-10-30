@@ -92,6 +92,15 @@ export function advance(room: Room, by: string, now: number): Room {
   return { ...room, game: getGame(room.gameId).advanceState(room.game, now) }
 }
 
+// Host ends the game early and jumps everyone to the final summary. The game
+// stays in progress (status 'playing', phase 'done') so all players see it;
+// `end` is what returns the room to the lobby.
+export function finishGame(room: Room, by: string, now: number): Room {
+  requireHost(room, by)
+  if (room.status !== 'playing') throw new RoomError('No game in progress')
+  return { ...room, game: getGame(room.gameId).endNow(room.game, now) }
+}
+
 export function tick(room: Room, now: number): Room {
   if (room.status !== 'playing') return room
   const next = getGame(room.gameId).tick(room.game, now)
@@ -144,6 +153,7 @@ export type Command =
   | { type: 'start' }
   | { type: 'action'; action: unknown }
   | { type: 'advance' }
+  | { type: 'finish' }
   | { type: 'end' }
 
 export function applyCommand(
@@ -164,6 +174,8 @@ export function applyCommand(
       return gameAction(room, by, cmd.action, now)
     case 'advance':
       return advance(room, by, now)
+    case 'finish':
+      return finishGame(room, by, now)
     case 'end':
       return endGame(room, by)
     default:

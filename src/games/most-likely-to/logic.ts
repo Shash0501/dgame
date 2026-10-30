@@ -4,7 +4,7 @@ import type { GameContent, GameModule } from '../types.ts'
 export type QuestionSource = 'all' | 'custom' | 'builtin'
 
 export interface MltSettings {
-  rounds: number
+  // Seconds a round stays open. Host-chosen with no fixed range.
   roundSeconds: number
   allowSelfVote: boolean
   questionSource: QuestionSource
@@ -21,6 +21,8 @@ export interface RoundResult {
 export interface MltState {
   settings: MltSettings
   playerIds: string[]
+  // The full shuffled pool. The game plays through every question, in order,
+  // until it's exhausted or the host ends it.
   questions: string[]
   round: number
   phase: 'voting' | 'results' | 'done'
@@ -32,10 +34,10 @@ export interface MltState {
 
 export type MltAction = { type: 'vote'; targetId: string }
 
-export const MAX_ROUNDS = 50
 const SOURCES: QuestionSource[] = ['all', 'custom', 'builtin']
 
 export const allVoted = (s: MltState) => s.playerIds.every((id) => id in s.votes)
+export const isLastQuestion = (s: MltState) => s.round + 1 >= s.questions.length
 
 // Unique question texts allowed by the host's chosen source.
 export function selectPool(content: GameContent, source: QuestionSource): string[] {
@@ -51,13 +53,13 @@ export function selectPool(content: GameContent, source: QuestionSource): string
   return pool
 }
 
-export function pickQuestions(pool: string[], count: number, rng: () => number = Math.random): string[] {
+export function shuffle(pool: string[], rng: () => number = Math.random): string[] {
   const copy = [...pool]
   for (let i = copy.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1))
     ;[copy[i], copy[j]] = [copy[j], copy[i]]
   }
-  return copy.slice(0, count)
+  return copy
 }
 
 export function closeRound(state: MltState): MltState {
@@ -82,34 +84,27 @@ export const mostLikelyTo: GameModule<MltState, MltAction, MltSettings> = {
     supportsScoring: true,
   }),
 
-  getDefaultSettings: () => ({ rounds: 5, roundSeconds: 30, allowSelfVote: false, questionSource: 'all' }),
+  getDefaultSettings: () => ({ roundSeconds: 30, allowSelfVote: false, questionSource: 'all' }),
 
   validateSettings(s) {
-    if (!Number.isInteger(s.rounds) || s.rounds < 1 || s.rounds > MAX_ROUNDS) {
-      return `Rounds must be between 1 and ${MAX_ROUNDS}`
-    }
-    if (!Number.isInteger(s.roundSeconds) || s.roundSeconds < 5 || s.roundSeconds > 300) {
-      return 'Round time must be between 5 and 300 seconds'
-    }
+    // No upper bound on the timer; just a sane positive integer.
+    if (!Number.isInteger(s.roundSeconds) || s.roundSeconds < 1) return 'Round time must be at least 1 second'
     if (!SOURCES.includes(s.questionSource ?? 'all')) return 'Unknown question source'
+    if (typeof s.allowSelfVote !== 'boolean') return 'Invalid setting'
     return null
   },
 
   initializeGame(playerIds, settings, now, content) {
     const pool = selectPool(content, settings.questionSource ?? 'all')
-    if (pool.length < settings.rounds) {
-      throw new GameError(
-        pool.length === 0
-          ? 'There are no questions to use with this setting. Add some questions or change the question source.'
-          : `Only ${pool.length} question${pool.length === 1 ? ' is' : 's are'} available with this setting, but you chose ${settings.rounds} rounds. Add more questions or lower the rounds.`,
-      )
+    if (pool.length === 0) {
+      throw new GameError('There are no questions to use with this setting. Add some questions or change the question source.')
     }
     const scores: Record<string, number> = {}
     for (const id of playerIds) scores[id] = 0
     return {
       settings,
       playerIds,
-      questions: pickQuestions(pool, settings.rounds),
+      questions: shuffle(pool),
       round: 0,
       phase: 'voting',
       deadline: now + settings.roundSeconds * 1000,
@@ -134,7 +129,7 @@ export const mostLikelyTo: GameModule<MltState, MltAction, MltSettings> = {
   advanceState(state, now) {
     if (state.phase === 'voting') return closeRound(state)
     if (state.phase === 'results') {
-      if (state.round + 1 >= state.settings.rounds) return { ...state, phase: 'done' }
+      if (isLastQuestion(state)) return { ...state, phase: 'done' } // ran out of questions
       return {
         ...state,
         round: state.round + 1,
@@ -146,6 +141,16 @@ export const mostLikelyTo: GameModule<MltState, MltAction, MltSettings> = {
     return state
   },
 
+  // Host ends the game early, from any phase. An in-progress round with at
+  // least one vote is counted before the summary.
+  endNow(state) {
+    if (state.phase === 'done') return state
+    if (state.phase === 'voting' && Object.keys(state.votes).length > 0) {
+      return { ...closeRound(state), phase: 'done' }
+    }
+    return { ...state, phase: 'done' }
+  },
+
   tick(state, now) {
     return state.phase === 'voting' && now >= state.deadline && !allVoted(state) ? closeRound(state) : state
   },
@@ -154,8 +159,8 @@ export const mostLikelyTo: GameModule<MltState, MltAction, MltSettings> = {
     const base = {
       phase: state.phase,
       round: state.round,
-      totalRounds: state.settings.rounds,
-      deadline: state.deadline,
+      totalRounds: state.questions.length,
+      roundSeconds: state.settings.roundSeconds,
       scores: state.scores,
       allowSelfVote: state.settings.allowSelfVote,
     }
@@ -165,6 +170,8 @@ export const mostLikelyTo: GameModule<MltState, MltAction, MltSettings> = {
       return {
         ...base,
         question: state.questions[state.round],
+        isLastQuestion: isLastQuestion(state),
+        deadline: state.deadline,
         myVote: state.votes[playerId] ?? null,
         votedCount: Object.keys(state.votes).length,
         allVoted: allVoted(state),
@@ -172,6 +179,11 @@ export const mostLikelyTo: GameModule<MltState, MltAction, MltSettings> = {
       }
     }
     const history = state.history.map(publicResult)
-    return { ...base, history, result: history[history.length - 1] }
+    return {
+      ...base,
+      isLastQuestion: isLastQuestion(state),
+      history,
+      result: history[history.length - 1],
+    }
   },
 }

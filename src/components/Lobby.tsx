@@ -6,19 +6,6 @@ import { useCommand } from './useCommand.ts'
 import { Avatar, Button, Card, ErrorText } from './ui.tsx'
 import QuestionsPanel from './QuestionsPanel.tsx'
 
-function Stepper({ label, value, min, max, step = 1, onChange }: { label: string; value: number; min: number; max: number; step?: number; onChange: (v: number) => void }) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <span>{label}</span>
-      <span className="flex items-center gap-2">
-        <button aria-label={`Decrease ${label}`} disabled={value <= min} onClick={() => onChange(Math.max(min, value - step))} className="h-11 w-11 rounded-xl border border-white/20 text-xl disabled:opacity-30">−</button>
-        <output className="w-10 text-center text-lg font-semibold">{value}</output>
-        <button aria-label={`Increase ${label}`} disabled={value >= max} onClick={() => onChange(Math.min(max, value + step))} className="h-11 w-11 rounded-xl border border-white/20 text-xl disabled:opacity-30">+</button>
-      </span>
-    </div>
-  )
-}
-
 export default function Lobby({ room }: { room: RoomView }) {
   const { send, error } = useCommand(room.code)
   const [copied, setCopied] = useState(false)
@@ -93,8 +80,23 @@ export default function Lobby({ room }: { room: RoomView }) {
         <>
         <Card className="space-y-4">
           <h2 className="font-semibold">Game settings</h2>
-          <Stepper label="Rounds" value={settings.rounds} min={1} max={30} onChange={(v) => setting('rounds', v)} />
-          <Stepper label="Seconds per round" value={settings.roundSeconds} min={10} max={120} step={5} onChange={(v) => setting('roundSeconds', v)} />
+          <p className="text-xs text-white/60">
+            No round limit — you’ll go through the questions one at a time and can end the game whenever you like.
+          </p>
+          <label className="flex min-h-11 items-center justify-between gap-3">
+            <span>Seconds per round</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              className="w-24 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-right text-lg"
+              value={settings.roundSeconds}
+              onChange={(e) => {
+                const n = Math.floor(Number(e.target.value))
+                if (Number.isFinite(n) && n >= 1) setting('roundSeconds', n)
+              }}
+            />
+          </label>
           <label className="flex min-h-11 items-center justify-between gap-3">
             <span>Allow voting for yourself</span>
             <input type="checkbox" className="h-6 w-6 accent-fuchsia-500" checked={settings.allowSelfVote} onChange={(e) => setting('allowSelfVote', e.target.checked)} />

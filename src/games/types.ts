@@ -24,6 +24,8 @@ export interface GameModule<State, Action, Settings> {
   // Throws GameError when the action is invalid.
   handleAction(state: State, playerId: string, action: Action, now: number): State
   advanceState(state: State, now: number): State
+  // Host ends the game now, from any phase, jumping to the final summary.
+  endNow(state: State, now: number): State
   // Moves time-based transitions forward (e.g. round deadlines).
   tick(state: State, now: number): State
   // isHost lets a game expose extra data (e.g. who voted) to the host only.

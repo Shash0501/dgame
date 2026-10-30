@@ -5,7 +5,13 @@ import { builtinContent } from './questions.ts'
 import { GameError } from '../types.ts'
 
 const ids = ['a', 'b', 'c', 'd']
-const start = () => g.initializeGame(ids, { ...g.getDefaultSettings(), rounds: 2 }, 0, builtinContent)
+// A small, fixed pool keeps the "plays through everything" tests predictable.
+const threeQ = { questions: [
+  { text: 'eat pizza', source: 'builtin' as const },
+  { text: 'adopt ten cats', source: 'builtin' as const },
+  { text: 'run a marathon', source: 'builtin' as const },
+] }
+const start = () => g.initializeGame(ids, g.getDefaultSettings(), 0, threeQ)
 
 test('rejects self votes by default and votes after the deadline', () => {
   const s = start()
@@ -33,18 +39,42 @@ test('ties highlight every top player and votes stay hidden while voting', () =>
   assert.deepEqual(s.history[0].winners, ['b', 'c'])
 })
 
-test('timer closes the round and the game ends after the last round', () => {
+test('timer closes the round, and the game plays through every question', () => {
   let s = g.tick(start(), 31_000)
   assert.equal(s.phase, 'results')
-  s = g.advanceState(s, 32_000)
+  s = g.advanceState(s, 32_000) // -> question 2
   assert.equal(s.round, 1)
-  s = g.advanceState(g.advanceState(s, 33_000), 34_000)
+  assert.equal((g.getPlayerView(s, 'a', false) as { isLastQuestion: boolean }).isLastQuestion, false)
+  s = g.advanceState(g.advanceState(s, 33_000), 34_000) // close q2 -> q3
+  assert.equal(s.round, 2)
+  assert.equal((g.getPlayerView(s, 'a', false) as { isLastQuestion: boolean }).isLastQuestion, true)
+  s = g.advanceState(g.advanceState(s, 35_000), 36_000) // close q3 -> done (pool exhausted)
   assert.equal(s.phase, 'done')
 })
 
-test('validates settings', () => {
-  assert.ok(g.validateSettings({ ...g.getDefaultSettings(), rounds: 0 }))
+test('the timer has no upper bound but must be a positive integer', () => {
+  assert.equal(g.validateSettings({ ...g.getDefaultSettings(), roundSeconds: 9999 }), null)
+  assert.ok(g.validateSettings({ ...g.getDefaultSettings(), roundSeconds: 0 }))
+  assert.ok(g.validateSettings({ ...g.getDefaultSettings(), roundSeconds: 1.5 }))
   assert.equal(g.validateSettings(g.getDefaultSettings()), null)
+})
+
+test('host can end the game from any phase, counting an in-progress round', () => {
+  // During voting, with votes cast: the round is scored, then done.
+  let s = start()
+  s = g.handleAction(s, 'a', { type: 'vote', targetId: 'b' }, 1)
+  const ended = g.endNow(s, 2)
+  assert.equal(ended.phase, 'done')
+  assert.equal(ended.history.length, 1)
+  assert.equal(ended.scores['b'], 1)
+
+  // During voting with no votes: just ends, no empty round recorded.
+  assert.equal(g.endNow(start(), 2).history.length, 0)
+
+  // From results: ends without adding a round.
+  const afterRound = g.advanceState(g.handleAction(start(), 'a', { type: 'vote', targetId: 'b' }, 1), 2)
+  assert.equal(g.endNow(afterRound, 3).phase, 'done')
+  assert.equal(g.endNow(afterRound, 3).history.length, 1)
 })
 
 test('who voted for whom is only visible to the host after the round', () => {
@@ -55,6 +85,16 @@ test('who voted for whom is only visible to the host after the round', () => {
   assert.deepEqual(last(g.getPlayerView(s, 'a', true)).votes, { a: 'b' })
   assert.equal(last(g.getPlayerView(s, 'c', false)).votes, undefined)
   assert.equal(JSON.stringify(g.getPlayerView(s, 'c', false)).includes('"a":"b"'), false)
+})
+
+test('the full summary (history + scores) is visible to every player', () => {
+  let s = start()
+  s = g.handleAction(s, 'a', { type: 'vote', targetId: 'b' }, 1)
+  s = g.endNow(s, 2)
+  const playerView = g.getPlayerView(s, 'c', false) as { phase: string; history: unknown[]; scores: Record<string, number> }
+  assert.equal(playerView.phase, 'done')
+  assert.equal(playerView.history.length, 1)
+  assert.equal(playerView.scores['b'], 1)
 })
 
 test('once everyone has voted the round stays open until the host reveals', () => {
@@ -80,13 +120,14 @@ test('question source filters the pool and drops duplicates', () => {
   assert.deepEqual(selectPool(mixed, 'builtin'), ['eat pizza'])
 })
 
-test('starting fails clearly when the pool is too small', () => {
-  const settings = { ...g.getDefaultSettings(), rounds: 3, questionSource: 'custom' as const }
-  assert.throws(() => g.initializeGame(ids, settings, 0, mixed), (e) => e instanceof GameError && /Only 2 questions/.test(e.message))
-  assert.throws(() => g.initializeGame(ids, settings, 0, { questions: [] }), /no questions/)
+test('starting fails only when the pool is empty', () => {
+  const settings = { ...g.getDefaultSettings(), questionSource: 'custom' as const }
+  assert.equal(g.initializeGame(ids, settings, 0, mixed).questions.length, 2)
+  assert.throws(() => g.initializeGame(ids, { ...g.getDefaultSettings(), questionSource: 'builtin' }, 0, { questions: [] }), /no questions/)
 })
 
-test('a game never repeats a question', () => {
-  const s = g.initializeGame(ids, { ...g.getDefaultSettings(), rounds: 30 }, 0, builtinContent)
-  assert.equal(new Set(s.questions).size, 30)
+test('a game shuffles in the whole pool without repeats', () => {
+  const s = g.initializeGame(ids, g.getDefaultSettings(), 0, builtinContent)
+  assert.equal(s.questions.length, builtinContent.questions.length)
+  assert.equal(new Set(s.questions).size, s.questions.length)
 })
