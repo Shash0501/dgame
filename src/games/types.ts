@@ -3,7 +3,6 @@ export interface GameMetadata {
   name: string
   description: string
   minPlayers: number
-  maxPlayers: number
   supportsScoring: boolean
 }
 

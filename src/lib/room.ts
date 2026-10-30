@@ -14,7 +14,8 @@ export interface Room {
   gameId: string
   settings: unknown
   game: unknown
-  maxPlayers: number
+  // null = no limit. Host-configurable in the lobby.
+  maxPlayers: number | null
 }
 
 export class RoomError extends Error {}
@@ -35,7 +36,7 @@ export function createRoom(code: string, hostId: string, hostName: string, gameI
     gameId,
     settings: game.getDefaultSettings(),
     game: null,
-    maxPlayers: game.getMetadata().maxPlayers,
+    maxPlayers: null,
   }
 }
 
@@ -43,7 +44,7 @@ export function joinRoom(room: Room, playerId: string, rawName: string): Room {
   if (room.players.some((p) => p.id === playerId)) return room // reconnect
   const name = cleanName(rawName)
   if (room.status !== 'lobby') throw new RoomError('This game has already started')
-  if (room.players.length >= room.maxPlayers) throw new RoomError('This room is full')
+  if (room.maxPlayers !== null && room.players.length >= room.maxPlayers) throw new RoomError('This room is full')
   if (room.players.some((p) => p.name.toLowerCase() === name.toLowerCase())) {
     throw new RoomError('That name is already taken')
   }
@@ -60,6 +61,17 @@ export function updateSettings(room: Room, by: string, settings: unknown): Room 
   const error = getGame(room.gameId).validateSettings(settings)
   if (error) throw new RoomError(error)
   return { ...room, settings }
+}
+
+// Host caps the room size, or passes null for no limit.
+export function setMaxPlayers(room: Room, by: string, max: number | null): Room {
+  requireHost(room, by)
+  if (room.status !== 'lobby') throw new RoomError('Room size is locked during a game')
+  if (max !== null) {
+    if (!Number.isInteger(max) || max < 1) throw new RoomError('Player limit must be a whole number of 1 or more')
+    if (max < room.players.length) throw new RoomError(`There are already ${room.players.length} players in the room`)
+  }
+  return { ...room, maxPlayers: max }
 }
 
 export function kickPlayer(room: Room, by: string, targetId: string): Room {
@@ -122,7 +134,7 @@ export interface RoomView {
   status: Room['status']
   gameId: string
   settings: unknown
-  maxPlayers: number
+  maxPlayers: number | null
   minPlayers: number
   view: unknown
   serverNow: number
@@ -149,6 +161,7 @@ export function toView(room: Room, playerId: string, now: number = Date.now()): 
 
 export type Command =
   | { type: 'settings'; settings: unknown }
+  | { type: 'maxPlayers'; value: number | null }
   | { type: 'kick'; targetId: string }
   | { type: 'start' }
   | { type: 'action'; action: unknown }
@@ -166,6 +179,8 @@ export function applyCommand(
   switch (cmd.type) {
     case 'settings':
       return updateSettings(room, by, cmd.settings)
+    case 'maxPlayers':
+      return setMaxPlayers(room, by, cmd.value)
     case 'kick':
       return kickPlayer(room, by, cmd.targetId)
     case 'start':

@@ -19,6 +19,8 @@ export default function Lobby({ room }: { room: RoomView }) {
   useEffect(() => {
     if (draft && JSON.stringify(draft) === JSON.stringify(serverSettings)) setDraft(null)
   }, [serverSettings, draft])
+  // Shown instantly while the server confirms; cleared once it answers.
+  const [capDraft, setCapDraft] = useState<string | null>(null)
   const missing = room.minPlayers - room.players.length
   const source = settings.questionSource ?? 'all'
 
@@ -55,7 +57,7 @@ export default function Lobby({ room }: { room: RoomView }) {
 
       <Card>
         <h2 className="mb-3 font-semibold">
-          Players <span className="text-white/60">({room.players.length}/{room.maxPlayers})</span>
+          Players <span className="text-white/60">({room.maxPlayers === null ? room.players.length : `${room.players.length}/${room.maxPlayers}`})</span>
         </h2>
         <ul className="space-y-2">
           {room.players.map((p) => (
@@ -94,6 +96,24 @@ export default function Lobby({ room }: { room: RoomView }) {
               onChange={(e) => {
                 const n = Math.floor(Number(e.target.value))
                 if (Number.isFinite(n) && n >= 1) setting('roundSeconds', n)
+              }}
+            />
+          </label>
+          <label className="flex min-h-11 items-center justify-between gap-3">
+            <span>Limit players <span className="text-white/50">(blank = no limit)</span></span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={Math.max(1, room.players.length)}
+              placeholder="∞"
+              className="w-24 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-right text-lg"
+              value={capDraft ?? room.maxPlayers ?? ''}
+              onChange={(e) => {
+                const raw = e.target.value
+                const n = raw === '' ? null : Math.floor(Number(raw))
+                if (n !== null && !(Number.isFinite(n) && n >= 1)) return
+                setCapDraft(raw === '' ? '' : String(n))
+                void send({ type: 'maxPlayers', value: n }).then(() => setCapDraft(null))
               }}
             />
           </label>

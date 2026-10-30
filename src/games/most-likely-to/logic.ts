@@ -80,7 +80,6 @@ export const mostLikelyTo: GameModule<MltState, MltAction, MltSettings> = {
     name: 'Most Likely To',
     description: 'Vote for the player who best fits each prompt.',
     minPlayers: 4,
-    maxPlayers: 14,
     supportsScoring: true,
   }),
 

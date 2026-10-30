@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { builtinContent } from '../games/most-likely-to/questions.ts'
-import { advance, createRoom, finishGame, gameAction, joinRoom, kickPlayer, startGame } from './room.ts'
+import { advance, createRoom, finishGame, gameAction, joinRoom, kickPlayer, setMaxPlayers, startGame } from './room.ts'
 
 function lobby(n = 4) {
   let r = createRoom('ABCDE', 'p0', 'Host', 'most-likely-to')
@@ -49,4 +49,17 @@ test('player view never exposes other players’ votes before reveal', async () 
   assert.ok(!json.includes('"votes"'))
   assert.equal((toView(r, 'p1').view as { myVote: string }).myVote, 'p2')
   assert.equal((toView(r, 'p3').view as { myVote: unknown }).myVote, null)
+})
+
+test('rooms have no player limit by default, and the host can set one', () => {
+  let r = lobby(1)
+  for (let i = 1; i < 30; i++) r = joinRoom(r, `p${i}`, `P${i}`)
+  assert.equal(r.players.length, 30)
+
+  assert.throws(() => setMaxPlayers(r, 'p1', 5)) // not the host
+  assert.throws(() => setMaxPlayers(r, 'p0', 10)) // below current player count
+  assert.throws(() => setMaxPlayers(r, 'p0', 0))
+  const capped = setMaxPlayers(r, 'p0', 30)
+  assert.throws(() => joinRoom(capped, 'late', 'Late'), /full/)
+  assert.equal(joinRoom(setMaxPlayers(capped, 'p0', null), 'late', 'Late').players.length, 31)
 })
