@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { RoomView } from '../lib/room.ts'
 import { getGame } from '../games/registry.ts'
 import type { MltSettings } from '../games/most-likely-to/logic.ts'
@@ -24,12 +24,24 @@ export default function Lobby({ room }: { room: RoomView }) {
   const [copied, setCopied] = useState(false)
   const isHost = room.hostId === room.me
   const meta = getGame(room.gameId).getMetadata()
-  const settings = room.settings as MltSettings
+  const serverSettings = room.settings as MltSettings
+  // Show setting changes instantly; the server's view replaces this once it
+  // arrives. Cleared whenever the authoritative settings catch up.
+  const [draft, setDraft] = useState<MltSettings | null>(null)
+  const settings = draft ?? serverSettings
+  useEffect(() => {
+    if (draft && JSON.stringify(draft) === JSON.stringify(serverSettings)) setDraft(null)
+  }, [serverSettings, draft])
   const missing = room.minPlayers - room.players.length
   const source = settings.questionSource ?? 'all'
 
-  const setting = <K extends keyof MltSettings>(key: K, value: MltSettings[K]) =>
-    void send({ type: 'settings', settings: { ...settings, [key]: value } })
+  const setting = <K extends keyof MltSettings>(key: K, value: MltSettings[K]) => {
+    const next = { ...settings, [key]: value }
+    setDraft(next)
+    void send({ type: 'settings', settings: next }).then((ok) => {
+      if (!ok) setDraft(null) // rejected: fall back to the server's value
+    })
+  }
 
   const link = `${location.origin}${location.pathname}#/${room.code}`
   async function copy() {

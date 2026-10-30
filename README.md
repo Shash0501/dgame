@@ -16,6 +16,9 @@ Without Supabase env vars the app uses a browser-only backend: rooms sync betwee
 4. Copy `.env.example` to `.env` and fill in `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
 5. Schedule `select public.cleanup_expired_rooms()` (e.g. pg_cron every 15 min) to delete expired rooms.
 
+## Deploy (Vercel + Supabase)
+See **[DEPLOYMENT.md](DEPLOYMENT.md)** for step-by-step hosting instructions.
+
 ## Architecture
 - `src/games/` game modules implementing `GameModule` (`types.ts`), registered in `registry.ts`.
 - `src/lib/room.ts` pure, authoritative room rules. Shared by the browser demo backend and the Edge Function.
